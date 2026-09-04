@@ -134,12 +134,12 @@
             const baseCurrency = 'EUR';
             const [compState, setCompState] = usePersistentState('bg_standalone_compoundCalc', {
                 startYear: new Date().getFullYear(),
-                currentAge: 35,
-                principal: 10000,
-                annualAddition: 6000,
-                years: 20,
+                currentAge: 25,
+                principal: 1000,
+                annualAddition: 1200,
+                years: 35,
                 rate: 10,
-                inflationRate: 2.5,
+                inflationRate: 0,
                 compoundsPerYear: 1,
                 addAtStart: true
             });
@@ -151,7 +151,7 @@
                 mode: 'byMonthly',
                 desiredMonthly: 2000,
                 desiredYears: 25,
-                rate: 6.0,
+                rate: 8.0,
                 useRealBalance: true
             });
 
