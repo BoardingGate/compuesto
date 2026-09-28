@@ -1,3 +1,4 @@
+--- START OF FILE index.html ---
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -33,13 +34,18 @@
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 6px; }
         input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
         input[type=number] { -moz-appearance: textfield; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(6px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in { animation: fadeIn 0.25s ease-out forwards; }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script id="react-app" type="text/plain">
-        const { useState, useEffect, useMemo } = React;
+        const { useState, useEffect, useMemo, useRef } = React;
         const { createRoot } = ReactDOM;
 
         const formatN = (v, dec = 2) => {
@@ -61,6 +67,13 @@
             if (c === 'USD') return `$ ${base}`;
             if (c === 'GBP') return `£ ${base}`;
             return `${base} €`;
+        };
+
+        const formatCompactMoney = (v) => {
+            const val = Math.abs(v);
+            if (val >= 1000000) return `${(v / 1000000).toFixed(1).replace('.0', '')}M €`;
+            if (val >= 1000) return `${(v / 1000).toFixed(0)}k €`;
+            return `${Math.round(v)} €`;
         };
 
         const usePersistentState = (key, initialValue) => {
@@ -127,7 +140,428 @@
             Zap: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>,
             Table: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M3 3h18v18H3z"></path><path d="M21 9H3"></path><path d="M21 15H3"></path><path d="M12 3v18"></path></svg>,
             Globe: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>,
-            ExternalLink: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+            ExternalLink: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>,
+            Activity: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+        };
+
+        // --- COMPONENTE GRÁFICA DE LÍNEAS PARA ACUMULACIÓN ---
+        const AccumulationChart = ({ history, initialPrincipal, startYear, currentAge, hasInflation }) => {
+            const svgRef = useRef(null);
+            const [hoverIndex, setHoverIndex] = useState(null);
+
+            const points = useMemo(() => {
+                const p0 = {
+                    year: 0,
+                    calYear: startYear,
+                    age: currentAge > 0 ? currentAge : null,
+                    principal: initialPrincipal,
+                    balance: initialPrincipal,
+                    realBalance: initialPrincipal,
+                    interest: 0
+                };
+                return [p0, ...history];
+            }, [history, initialPrincipal, startYear, currentAge]);
+
+            if (points.length < 2) return null;
+
+            const width = 860;
+            const height = 340;
+            const pad = { top: 35, right: 35, bottom: 45, left: 75 };
+            const innerW = width - pad.left - pad.right;
+            const innerH = height - pad.top - pad.bottom;
+
+            const maxY = Math.max(...points.map(d => Math.max(d.balance || 0, d.principal || 0, d.realBalance || 0))) * 1.06 || 1000;
+            const minY = 0;
+
+            const getX = (idx) => pad.left + (idx / (points.length - 1)) * innerW;
+            const getY = (val) => pad.top + innerH - ((val - minY) / (maxY - minY)) * innerH;
+
+            const linePrincipal = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${getX(i).toFixed(1)} ${getY(p.principal).toFixed(1)}`).join(' ');
+            const lineBalance = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${getX(i).toFixed(1)} ${getY(p.balance).toFixed(1)}`).join(' ');
+            const lineReal = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${getX(i).toFixed(1)} ${getY(p.realBalance).toFixed(1)}`).join(' ');
+
+            const areaBalance = `${lineBalance} L ${getX(points.length - 1).toFixed(1)} ${(pad.top + innerH).toFixed(1)} L ${pad.left.toFixed(1)} ${(pad.top + innerH).toFixed(1)} Z`;
+
+            const yTicks = [0, 0.25, 0.5, 0.75, 1].map(r => minY + (maxY - minY) * r);
+            const xTicksCount = Math.min(points.length, 7);
+            const xTickIndices = Array.from({ length: xTicksCount }, (_, i) => Math.round((i * (points.length - 1)) / (xTicksCount - 1)));
+
+            const handlePointerMove = (e) => {
+                if (!svgRef.current) return;
+                const rect = svgRef.current.getBoundingClientRect();
+                const clientX = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : null);
+                if (clientX === null) return;
+                const relX = clientX - rect.left;
+                const scale = width / rect.width;
+                const plotX = relX * scale;
+                const clampedX = Math.max(pad.left, Math.min(pad.left + innerW, plotX));
+                const ratio = (clampedX - pad.left) / innerW;
+                const nearestIdx = Math.round(ratio * (points.length - 1));
+                setHoverIndex(nearestIdx);
+            };
+
+            const activePt = hoverIndex !== null && points[hoverIndex] ? points[hoverIndex] : null;
+
+            return (
+                <div className="bg-slate-950/90 border border-slate-800 rounded-2xl p-4 md:p-6 space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+                        <div className="flex items-center gap-2">
+                            <Icons.Activity className="w-5 h-5 text-green-400" />
+                            <h4 className="text-sm font-display font-bold text-white uppercase tracking-wider">
+                                Curva de Capital Aportado vs. Acumulado
+                            </h4>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-4 text-xs">
+                            <span className="flex items-center gap-1.5 font-bold text-sky-400">
+                                <span className="w-3 h-0.5 bg-sky-400 inline-block rounded-full"></span>
+                                Capital Aportado
+                            </span>
+                            <span className="flex items-center gap-1.5 font-bold text-green-400">
+                                <span className="w-3 h-0.5 bg-green-400 inline-block rounded-full"></span>
+                                Capital Acumulado Nominal
+                            </span>
+                            {hasInflation && (
+                                <span className="flex items-center gap-1.5 font-bold text-indigo-400">
+                                    <span className="w-3 h-0.5 bg-indigo-400 inline-block rounded-full"></span>
+                                    Capital Real (Aj. Inflación)
+                                </span>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="relative w-full select-none" onMouseLeave={() => setHoverIndex(null)}>
+                        <svg
+                            ref={svgRef}
+                            viewBox={`0 0 ${width} ${height}`}
+                            className="w-full h-auto overflow-visible cursor-crosshair"
+                            onMouseMove={handlePointerMove}
+                            onTouchMove={handlePointerMove}
+                        >
+                            <defs>
+                                <linearGradient id="accGrad" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stopColor="#22c55e" stopOpacity="0.22" />
+                                    <stop offset="100%" stopColor="#22c55e" stopOpacity="0.0" />
+                                </linearGradient>
+                            </defs>
+
+                            {/* Rejilla Horizontal */}
+                            {yTicks.map((val, idx) => {
+                                const yPos = getY(val);
+                                return (
+                                    <g key={idx}>
+                                        <line x1={pad.left} y1={yPos} x2={pad.left + innerW} y2={yPos} stroke="#334155" strokeOpacity="0.35" strokeDasharray="3 3" />
+                                        <text x={pad.left - 10} y={yPos + 4} fill="#64748b" fontSize="11" textAnchor="end" fontFamily="monospace">
+                                            {formatCompactMoney(val)}
+                                        </text>
+                                    </g>
+                                );
+                            })}
+
+                            {/* Rejilla Vertical / Eje X */}
+                            {xTickIndices.map((ptIdx) => {
+                                const pt = points[ptIdx];
+                                const xPos = getX(ptIdx);
+                                return (
+                                    <g key={ptIdx}>
+                                        <line x1={xPos} y1={pad.top} x2={xPos} y2={pad.top + innerH} stroke="#334155" strokeOpacity="0.2" />
+                                        <text x={xPos} y={pad.top + innerH + 18} fill="#94a3b8" fontSize="11" textAnchor="middle" fontFamily="sans-serif">
+                                            {pt.calYear}
+                                        </text>
+                                        {pt.age && (
+                                            <text x={xPos} y={pad.top + innerH + 30} fill="#64748b" fontSize="9" textAnchor="middle" fontFamily="sans-serif">
+                                                {pt.age}a
+                                            </text>
+                                        )}
+                                    </g>
+                                );
+                            })}
+
+                            {/* Área sombreada */}
+                            <path d={areaBalance} fill="url(#accGrad)" />
+
+                            {/* Líneas de datos */}
+                            <path d={linePrincipal} fill="none" stroke="#38bdf8" strokeWidth="2.5" strokeDasharray="5 3" />
+                            {hasInflation && <path d={lineReal} fill="none" stroke="#818cf8" strokeWidth="2.5" strokeDasharray="2 2" />}
+                            <path d={lineBalance} fill="none" stroke="#22c55e" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
+
+                            {/* Puntos y Línea Guía Interactiva en Hover */}
+                            {activePt && (
+                                <g>
+                                    <line
+                                        x1={getX(hoverIndex)}
+                                        y1={pad.top}
+                                        x2={getX(hoverIndex)}
+                                        y2={pad.top + innerH}
+                                        stroke="#94a3b8"
+                                        strokeWidth="1.2"
+                                        strokeDasharray="4 3"
+                                    />
+                                    {/* Punto Aportado */}
+                                    <circle cx={getX(hoverIndex)} cy={getY(activePt.principal)} r="5.5" fill="#38bdf8" stroke="#0f172a" strokeWidth="2" />
+                                    {/* Punto Real */}
+                                    {hasInflation && (
+                                        <circle cx={getX(hoverIndex)} cy={getY(activePt.realBalance)} r="5.5" fill="#818cf8" stroke="#0f172a" strokeWidth="2" />
+                                    )}
+                                    {/* Punto Nominal */}
+                                    <circle cx={getX(hoverIndex)} cy={getY(activePt.balance)} r="6.5" fill="#22c55e" stroke="#ffffff" strokeWidth="2.5" />
+                                </g>
+                            )}
+                        </svg>
+
+                        {/* Tooltip Dinámico Flotante */}
+                        {activePt && (
+                            <div
+                                className="pointer-events-none absolute z-30 transition-all duration-75 ease-out shadow-2xl bg-slate-900/95 border border-slate-700 p-3.5 rounded-xl text-left font-mono min-w-[220px]"
+                                style={{
+                                    left: `${(getX(hoverIndex) / width) * 100}%`,
+                                    top: '12px',
+                                    transform: getX(hoverIndex) > width * 0.55 ? 'translateX(calc(-100% - 14px))' : 'translateX(14px)'
+                                }}
+                            >
+                                <div className="border-b border-slate-800 pb-2 mb-2 flex items-center justify-between gap-4 font-sans">
+                                    <span className="text-xs font-bold text-white">
+                                        {activePt.year === 0 ? 'Inicio' : `Año ${activePt.year}`} ({activePt.calYear})
+                                    </span>
+                                    {activePt.age && (
+                                        <span className="text-[10px] bg-cyan-950/80 text-cyan-300 px-2 py-0.5 rounded-full border border-cyan-700/50">
+                                            {activePt.age} años
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="space-y-1 text-xs">
+                                    <div className="flex justify-between items-center text-slate-300">
+                                        <span className="text-sky-400 font-bold">Aportado:</span>
+                                        <span className="font-bold">{formatMoney(activePt.principal)}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-green-400">
+                                        <span className="font-bold">Acumulado (Nom):</span>
+                                        <span className="font-black text-sm">{formatMoney(activePt.balance)}</span>
+                                    </div>
+                                    {hasInflation && (
+                                        <div className="flex justify-between items-center text-indigo-300">
+                                            <span className="font-bold">Real (Aj. Inf):</span>
+                                            <span className="font-bold">{formatMoney(activePt.realBalance)}</span>
+                                        </div>
+                                    )}
+                                    <div className="flex justify-between items-center text-slate-400 pt-1 border-t border-slate-800/80">
+                                        <span>Intereses Netos:</span>
+                                        <span className="text-emerald-300 font-bold">+{formatMoney(activePt.balance - activePt.principal)}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        // --- COMPONENTE GRÁFICA DE LÍNEAS PARA DESACUMULACIÓN ---
+        const DrawdownChart = ({ drawdownHistory, startCapital, endAccumYear, endAccumAge }) => {
+            const svgRef = useRef(null);
+            const [hoverIndex, setHoverIndex] = useState(null);
+
+            const points = useMemo(() => {
+                const p0 = {
+                    yearIndex: 0,
+                    calYear: endAccumYear,
+                    age: endAccumAge,
+                    endBalance: startCapital,
+                    withdrawn: 0,
+                    cumWithdrawn: 0,
+                    interestEarned: 0
+                };
+                let cum = 0;
+                const rows = drawdownHistory.map(r => {
+                    cum += r.withdrawn;
+                    return {
+                        ...r,
+                        cumWithdrawn: cum
+                    };
+                });
+                return [p0, ...rows];
+            }, [drawdownHistory, startCapital, endAccumYear, endAccumAge]);
+
+            if (points.length < 2) return null;
+
+            const width = 860;
+            const height = 340;
+            const pad = { top: 35, right: 35, bottom: 45, left: 75 };
+            const innerW = width - pad.left - pad.right;
+            const innerH = height - pad.top - pad.bottom;
+
+            const maxY = Math.max(...points.map(d => Math.max(d.endBalance || 0, d.cumWithdrawn || 0))) * 1.06 || 1000;
+            const minY = 0;
+
+            const getX = (idx) => pad.left + (idx / (points.length - 1)) * innerW;
+            const getY = (val) => pad.top + innerH - ((val - minY) / (maxY - minY)) * innerH;
+
+            const lineBalance = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${getX(i).toFixed(1)} ${getY(p.endBalance).toFixed(1)}`).join(' ');
+            const lineWithdrawn = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${getX(i).toFixed(1)} ${getY(p.cumWithdrawn).toFixed(1)}`).join(' ');
+
+            const areaRemanente = `${lineBalance} L ${getX(points.length - 1).toFixed(1)} ${(pad.top + innerH).toFixed(1)} L ${pad.left.toFixed(1)} ${(pad.top + innerH).toFixed(1)} Z`;
+
+            const yTicks = [0, 0.25, 0.5, 0.75, 1].map(r => minY + (maxY - minY) * r);
+            const xTicksCount = Math.min(points.length, 7);
+            const xTickIndices = Array.from({ length: xTicksCount }, (_, i) => Math.round((i * (points.length - 1)) / (xTicksCount - 1)));
+
+            const handlePointerMove = (e) => {
+                if (!svgRef.current) return;
+                const rect = svgRef.current.getBoundingClientRect();
+                const clientX = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : null);
+                if (clientX === null) return;
+                const relX = clientX - rect.left;
+                const scale = width / rect.width;
+                const plotX = relX * scale;
+                const clampedX = Math.max(pad.left, Math.min(pad.left + innerW, plotX));
+                const ratio = (clampedX - pad.left) / innerW;
+                const nearestIdx = Math.round(ratio * (points.length - 1));
+                setHoverIndex(nearestIdx);
+            };
+
+            const activePt = hoverIndex !== null && points[hoverIndex] ? points[hoverIndex] : null;
+
+            return (
+                <div className="bg-slate-950/90 border border-slate-800 rounded-2xl p-4 md:p-6 space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+                        <div className="flex items-center gap-2">
+                            <Icons.DollarSign className="w-5 h-5 text-cyan-400" />
+                            <h4 className="text-sm font-display font-bold text-white uppercase tracking-wider">
+                                Curva de Desacumulación: Saldo Remanente vs. Retiro Acumulado
+                            </h4>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-4 text-xs">
+                            <span className="flex items-center gap-1.5 font-bold text-cyan-400">
+                                <span className="w-3 h-0.5 bg-cyan-400 inline-block rounded-full"></span>
+                                Saldo Remanente
+                            </span>
+                            <span className="flex items-center gap-1.5 font-bold text-orange-400">
+                                <span className="w-3 h-0.5 bg-orange-400 inline-block rounded-full"></span>
+                                Retiros Acumulados
+                            </span>
+                        </div>
+                    </div>
+
+                    <div className="relative w-full select-none" onMouseLeave={() => setHoverIndex(null)}>
+                        <svg
+                            ref={svgRef}
+                            viewBox={`0 0 ${width} ${height}`}
+                            className="w-full h-auto overflow-visible cursor-crosshair"
+                            onMouseMove={handlePointerMove}
+                            onTouchMove={handlePointerMove}
+                        >
+                            <defs>
+                                <linearGradient id="drawGrad" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.20" />
+                                    <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.0" />
+                                </linearGradient>
+                            </defs>
+
+                            {/* Rejilla Horizontal */}
+                            {yTicks.map((val, idx) => {
+                                const yPos = getY(val);
+                                return (
+                                    <g key={idx}>
+                                        <line x1={pad.left} y1={yPos} x2={pad.left + innerW} y2={yPos} stroke="#334155" strokeOpacity="0.35" strokeDasharray="3 3" />
+                                        <text x={pad.left - 10} y={yPos + 4} fill="#64748b" fontSize="11" textAnchor="end" fontFamily="monospace">
+                                            {formatCompactMoney(val)}
+                                        </text>
+                                    </g>
+                                );
+                            })}
+
+                            {/* Rejilla Vertical / Eje X */}
+                            {xTickIndices.map((ptIdx) => {
+                                const pt = points[ptIdx];
+                                const xPos = getX(ptIdx);
+                                return (
+                                    <g key={ptIdx}>
+                                        <line x1={xPos} y1={pad.top} x2={xPos} y2={pad.top + innerH} stroke="#334155" strokeOpacity="0.2" />
+                                        <text x={xPos} y={pad.top + innerH + 18} fill="#94a3b8" fontSize="11" textAnchor="middle" fontFamily="sans-serif">
+                                            {pt.calYear}
+                                        </text>
+                                        {pt.age && (
+                                            <text x={xPos} y={pad.top + innerH + 30} fill="#64748b" fontSize="9" textAnchor="middle" fontFamily="sans-serif">
+                                                {pt.age}a
+                                            </text>
+                                        )}
+                                    </g>
+                                );
+                            })}
+
+                            {/* Área sombreada */}
+                            <path d={areaRemanente} fill="url(#drawGrad)" />
+
+                            {/* Líneas de datos */}
+                            <path d={lineWithdrawn} fill="none" stroke="#f97316" strokeWidth="2.5" strokeDasharray="4 3" />
+                            <path d={lineBalance} fill="none" stroke="#06b6d4" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
+
+                            {/* Puntos y Línea Guía Interactiva en Hover */}
+                            {activePt && (
+                                <g>
+                                    <line
+                                        x1={getX(hoverIndex)}
+                                        y1={pad.top}
+                                        x2={getX(hoverIndex)}
+                                        y2={pad.top + innerH}
+                                        stroke="#94a3b8"
+                                        strokeWidth="1.2"
+                                        strokeDasharray="4 3"
+                                    />
+                                    {/* Punto Retiro Acumulado */}
+                                    <circle cx={getX(hoverIndex)} cy={getY(activePt.cumWithdrawn)} r="5.5" fill="#f97316" stroke="#0f172a" strokeWidth="2" />
+                                    {/* Punto Saldo Remanente */}
+                                    <circle cx={getX(hoverIndex)} cy={getY(activePt.endBalance)} r="6.5" fill="#06b6d4" stroke="#ffffff" strokeWidth="2.5" />
+                                </g>
+                            )}
+                        </svg>
+
+                        {/* Tooltip Dinámico Flotante */}
+                        {activePt && (
+                            <div
+                                className="pointer-events-none absolute z-30 transition-all duration-75 ease-out shadow-2xl bg-slate-900/95 border border-slate-700 p-3.5 rounded-xl text-left font-mono min-w-[220px]"
+                                style={{
+                                    left: `${(getX(hoverIndex) / width) * 100}%`,
+                                    top: '12px',
+                                    transform: getX(hoverIndex) > width * 0.55 ? 'translateX(calc(-100% - 14px))' : 'translateX(14px)'
+                                }}
+                            >
+                                <div className="border-b border-slate-800 pb-2 mb-2 flex items-center justify-between gap-4 font-sans">
+                                    <span className="text-xs font-bold text-white">
+                                        {activePt.yearIndex === 0 ? 'Inicio Retiro' : `Año ${activePt.yearIndex}`} ({activePt.calYear})
+                                    </span>
+                                    {activePt.age && (
+                                        <span className="text-[10px] bg-cyan-950/80 text-cyan-300 px-2 py-0.5 rounded-full border border-cyan-700/50">
+                                            {activePt.age} años
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="space-y-1 text-xs">
+                                    <div className="flex justify-between items-center text-cyan-400">
+                                        <span className="font-bold">Saldo Remanente:</span>
+                                        <span className="font-black text-sm">{formatMoney(activePt.endBalance)}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-orange-400">
+                                        <span className="font-bold">Retiro Acumulado:</span>
+                                        <span className="font-bold">{formatMoney(activePt.cumWithdrawn)}</span>
+                                    </div>
+                                    {activePt.yearIndex > 0 && (
+                                        <>
+                                            <div className="flex justify-between items-center text-slate-400 pt-1 border-t border-slate-800/80">
+                                                <span>Retiro Anual:</span>
+                                                <span className="text-white font-bold">{formatMoney(activePt.withdrawn)}</span>
+                                            </div>
+                                            <div className="flex justify-between items-center text-slate-400">
+                                                <span>Rendimiento Año:</span>
+                                                <span className="text-green-400 font-bold">+{formatMoney(activePt.interestEarned)}</span>
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
         };
 
         const App = () => {
@@ -556,7 +990,7 @@
                                             : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300'
                                     }`}
                                 >
-                                    <Icons.Table className="w-4 h-4" /> {showCompTable ? 'Ocultar Desglose Acumulación' : 'Ver Desglose Acumulación (Aportes)'}
+                                    <Icons.Table className="w-4 h-4" /> {showCompTable ? 'Ocultar Desglose y Gráfica Acumulación' : 'Ver Desglose y Gráfica Acumulación (Aportes)'}
                                 </button>
 
                                 <button 
@@ -567,115 +1001,134 @@
                                             : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-cyan-300'
                                     }`}
                                 >
-                                    <Icons.DollarSign className="w-4 h-4" /> {showDrawdownTable ? 'Ocultar Desglose Desacumulación' : 'Ver Desglose Desacumulación (Retiro)'}
+                                    <Icons.DollarSign className="w-4 h-4" /> {showDrawdownTable ? 'Ocultar Desglose y Gráfica Desacumulación' : 'Ver Desglose y Gráfica Desacumulación (Retiro)'}
                                 </button>
                             </div>
 
-                            {/* TABLA 1: DESGLOSE ACUMULACIÓN */}
+                            {/* SECCIÓN 1: GRÁFICA Y TABLA DE ACUMULACIÓN */}
                             {showCompTable && (
-                                <div className="overflow-x-auto rounded-xl border border-slate-800 animate-fade-in max-h-[500px] overflow-y-auto custom-scrollbar">
-                                    <div className="bg-slate-900 p-2.5 text-[10px] font-black uppercase tracking-wider text-blue-300 border-b border-slate-800 text-center">
-                                        Plan de Acumulación y Creación de Patrimonio (Años {sYear} a {endAccumYear})
+                                <div className="space-y-6 animate-fade-in">
+                                    <AccumulationChart 
+                                        history={compResult.history} 
+                                        initialPrincipal={compState.principal}
+                                        startYear={sYear}
+                                        currentAge={sAge}
+                                        hasInflation={(compState.inflationRate || 0) > 0}
+                                    />
+
+                                    <div className="overflow-x-auto rounded-xl border border-slate-800 max-h-[500px] overflow-y-auto custom-scrollbar">
+                                        <div className="bg-slate-900 p-2.5 text-[10px] font-black uppercase tracking-wider text-blue-300 border-b border-slate-800 text-center">
+                                            Plan de Acumulación y Creación de Patrimonio (Años {sYear} a {endAccumYear})
+                                        </div>
+                                        <table className="w-full text-sm border-collapse text-right">
+                                            <thead className="bg-slate-900 sticky top-0 z-10 text-[10px] uppercase font-bold text-slate-400">
+                                                <tr>
+                                                    <th className="p-3 text-center">Periodo</th>
+                                                    <th className="p-3 text-center text-cyan-300">Año / Edad</th>
+                                                    <th className="p-3">Aportado</th>
+                                                    <th className="p-3">Interés</th>
+                                                    <th className="p-3 text-slate-300">Total Nominal</th>
+                                                    <th className="p-3 text-white border-l border-slate-700">Valor Real (Aj. Inflación)</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="bg-slate-900/50 divide-y divide-slate-800 font-mono">
+                                                {compResult.history.map((row, idx) => {
+                                                    const isCrossover = compResult.crossoverYear === row.year;
+                                                    const yearBaggers = row.yearBaggers || [];
+                                                    const pctAcum = row.principal > 0 ? (row.interest / row.principal) * 100 : 0;
+                                                    
+                                                    let prevPctAcum = 0;
+                                                    if (idx > 0) {
+                                                        const prevRow = compResult.history[idx - 1];
+                                                        prevPctAcum = prevRow.principal > 0 ? (prevRow.interest / prevRow.principal) * 100 : 0;
+                                                    }
+                                                    const incrementPct = pctAcum - prevPctAcum;
+                                                    
+                                                    return (
+                                                        <tr key={row.year} className={`${isCrossover ? 'bg-blue-900/20 border-l-4 border-l-blue-500 shadow-inner' : yearBaggers.length > 0 ? 'bg-green-900/10 border-l-4 border-l-green-500 shadow-inner' : 'hover:bg-slate-800/50'} transition-colors`}>
+                                                            <td className="p-3 font-bold text-center relative">
+                                                                <span className={isCrossover ? 'text-blue-400' : yearBaggers.length > 0 ? 'text-green-400' : 'text-slate-400'}>Año {row.year}</span>
+                                                                {isCrossover && <div className="text-[7px] text-blue-400 uppercase tracking-tighter mt-0.5 font-sans leading-none">Inflexión</div>}
+                                                                {yearBaggers.map(b => (
+                                                                    <div key={b} className="text-[7px] text-green-400 uppercase tracking-tighter mt-0.5 font-sans leading-none font-black">{b}-Bagger (+{b * 100}%)</div>
+                                                                ))}
+                                                            </td>
+                                                            <td className="p-3 text-center font-sans font-bold text-cyan-300">
+                                                                <div>{row.calYear}</div>
+                                                                {row.age && <div className="text-[9px] text-slate-400 font-normal">{row.age} años</div>}
+                                                            </td>
+                                                            <td className="p-3 text-slate-300">{formatMoney(row.principal)}</td>
+                                                            <td className="p-3 text-green-400 text-right">
+                                                                <div className="font-bold">+{formatMoney(row.interest)}</div>
+                                                                <div className="text-[9px] text-slate-500 font-sans mt-0.5 leading-tight">
+                                                                    Acumulado: <span className="text-slate-400 font-bold">{formatN(pctAcum)}%</span><br/>
+                                                                    Incr. Anual: <span className="text-slate-400 font-bold">+{formatN(incrementPct)}%</span>
+                                                                </div>
+                                                            </td>
+                                                            <td className="p-3 font-bold text-slate-300">{formatMoney(row.balance)}</td>
+                                                            <td className="p-3 font-bold text-white text-base border-l border-slate-700">{formatMoney(row.realBalance)}</td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>                        
+                                        </table>
                                     </div>
-                                    <table className="w-full text-sm border-collapse text-right">
-                                        <thead className="bg-slate-900 sticky top-0 z-10 text-[10px] uppercase font-bold text-slate-400">
-                                            <tr>
-                                                <th className="p-3 text-center">Periodo</th>
-                                                <th className="p-3 text-center text-cyan-300">Año / Edad</th>
-                                                <th className="p-3">Aportado</th>
-                                                <th className="p-3">Interés</th>
-                                                <th className="p-3 text-slate-300">Total Nominal</th>
-                                                <th className="p-3 text-white border-l border-slate-700">Valor Real (Aj. Inflación)</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="bg-slate-900/50 divide-y divide-slate-800 font-mono">
-                                            {compResult.history.map((row, idx) => {
-                                                const isCrossover = compResult.crossoverYear === row.year;
-                                                const yearBaggers = row.yearBaggers || [];
-                                                const pctAcum = row.principal > 0 ? (row.interest / row.principal) * 100 : 0;
-                                                
-                                                let prevPctAcum = 0;
-                                                if (idx > 0) {
-                                                    const prevRow = compResult.history[idx - 1];
-                                                    prevPctAcum = prevRow.principal > 0 ? (prevRow.interest / prevRow.principal) * 100 : 0;
-                                                }
-                                                const incrementPct = pctAcum - prevPctAcum;
-                                                
-                                                return (
-                                                    <tr key={row.year} className={`${isCrossover ? 'bg-blue-900/20 border-l-4 border-l-blue-500 shadow-inner' : yearBaggers.length > 0 ? 'bg-green-900/10 border-l-4 border-l-green-500 shadow-inner' : 'hover:bg-slate-800/50'} transition-colors`}>
-                                                        <td className="p-3 font-bold text-center relative">
-                                                            <span className={isCrossover ? 'text-blue-400' : yearBaggers.length > 0 ? 'text-green-400' : 'text-slate-400'}>Año {row.year}</span>
-                                                            {isCrossover && <div className="text-[7px] text-blue-400 uppercase tracking-tighter mt-0.5 font-sans leading-none">Inflexión</div>}
-                                                            {yearBaggers.map(b => (
-                                                                <div key={b} className="text-[7px] text-green-400 uppercase tracking-tighter mt-0.5 font-sans leading-none font-black">{b}-Bagger (+{b * 100}%)</div>
-                                                            ))}
+                                </div>
+                            )}
+
+                            {/* SECCIÓN 2: GRÁFICA Y TABLA DE DESACUMULACIÓN */}
+                            {showDrawdownTable && (
+                                <div className="space-y-6 animate-fade-in">
+                                    <DrawdownChart 
+                                        drawdownHistory={drawdownHistory}
+                                        startCapital={startCapital}
+                                        endAccumYear={endAccumYear}
+                                        endAccumAge={endAccumAge}
+                                    />
+
+                                    <div className="overflow-x-auto rounded-xl border border-slate-800 max-h-[500px] overflow-y-auto custom-scrollbar">
+                                        <div className="bg-slate-900 p-2.5 text-[10px] font-black uppercase tracking-wider text-cyan-300 border-b border-slate-800 text-center flex justify-between items-center px-4">
+                                            <span>Cronograma de Consumo y Renta (Inicia en Año {endAccumYear})</span>
+                                            <span className="text-slate-400 font-mono font-normal">Cuota simulada: {formatMoney(effectiveMonthlyPayout)}/mes ({formatMoney(effectiveMonthlyPayout * 12)}/año)</span>
+                                        </div>
+                                        <table className="w-full text-sm border-collapse text-right">
+                                            <thead className="bg-slate-900 sticky top-0 z-10 text-[10px] uppercase font-bold text-slate-400">
+                                                <tr>
+                                                    <th className="p-3 text-center">Año Retiro</th>
+                                                    <th className="p-3 text-center text-cyan-300">Año / Edad</th>
+                                                    <th className="p-3 text-slate-300">Saldo Inicial</th>
+                                                    <th className="p-3 text-orange-400">Retiro Anual</th>
+                                                    <th className="p-3 text-green-400">Rendimiento (+%)</th>
+                                                    <th className="p-3 text-white border-l border-slate-700">Saldo Remanente</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="bg-slate-900/50 divide-y divide-slate-800 font-mono">
+                                                {drawdownHistory.map((row) => (
+                                                    <tr key={row.yearIndex} className="hover:bg-slate-800/50 transition-colors">
+                                                        <td className="p-3 font-bold text-center text-slate-400 font-sans">
+                                                            Año {row.yearIndex}
                                                         </td>
                                                         <td className="p-3 text-center font-sans font-bold text-cyan-300">
                                                             <div>{row.calYear}</div>
                                                             {row.age && <div className="text-[9px] text-slate-400 font-normal">{row.age} años</div>}
                                                         </td>
-                                                        <td className="p-3 text-slate-300">{formatMoney(row.principal)}</td>
-                                                        <td className="p-3 text-green-400 text-right">
-                                                            <div className="font-bold">+{formatMoney(row.interest)}</div>
-                                                            <div className="text-[9px] text-slate-500 font-sans mt-0.5 leading-tight">
-                                                                Acumulado: <span className="text-slate-400 font-bold">{formatN(pctAcum)}%</span><br/>
-                                                                Incr. Anual: <span className="text-slate-400 font-bold">+{formatN(incrementPct)}%</span>
-                                                            </div>
+                                                        <td className="p-3 text-slate-300 font-bold">{formatMoney(row.startBalance)}</td>
+                                                        <td className="p-3 text-orange-400 font-bold">-{formatMoney(row.withdrawn)}</td>
+                                                        <td className="p-3 text-green-400">+{formatMoney(row.interestEarned)}</td>
+                                                        <td className={`p-3 font-bold border-l border-slate-700 text-base ${row.endBalance <= 0 ? 'text-red-400' : 'text-white'}`}>
+                                                            {formatMoney(row.endBalance)}
                                                         </td>
-                                                        <td className="p-3 font-bold text-slate-300">{formatMoney(row.balance)}</td>
-                                                        <td className="p-3 font-bold text-white text-base border-l border-slate-700">{formatMoney(row.realBalance)}</td>
                                                     </tr>
-                                                );
-                                            })}
-                                        </tbody>                        
-                                    </table>
-                                </div>
-                            )}
-
-                            {/* TABLA 2: DESGLOSE DESACUMULACIÓN */}
-                            {showDrawdownTable && (
-                                <div className="overflow-x-auto rounded-xl border border-slate-800 animate-fade-in max-h-[500px] overflow-y-auto custom-scrollbar">
-                                    <div className="bg-slate-900 p-2.5 text-[10px] font-black uppercase tracking-wider text-cyan-300 border-b border-slate-800 text-center flex justify-between items-center px-4">
-                                        <span>Cronograma de Consumo y Renta (Inicia en Año {endAccumYear})</span>
-                                        <span className="text-slate-400 font-mono font-normal">Cuota simulada: {formatMoney(effectiveMonthlyPayout)}/mes ({formatMoney(effectiveMonthlyPayout * 12)}/año)</span>
+                                                ))}
+                                            </tbody>
+                                        </table>
                                     </div>
-                                    <table className="w-full text-sm border-collapse text-right">
-                                        <thead className="bg-slate-900 sticky top-0 z-10 text-[10px] uppercase font-bold text-slate-400">
-                                            <tr>
-                                                <th className="p-3 text-center">Año Retiro</th>
-                                                <th className="p-3 text-center text-cyan-300">Año / Edad</th>
-                                                <th className="p-3 text-slate-300">Saldo Inicial</th>
-                                                <th className="p-3 text-orange-400">Retiro Anual</th>
-                                                <th className="p-3 text-green-400">Rendimiento (+%)</th>
-                                                <th className="p-3 text-white border-l border-slate-700">Saldo Remanente</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="bg-slate-900/50 divide-y divide-slate-800 font-mono">
-                                            {drawdownHistory.map((row) => (
-                                                <tr key={row.yearIndex} className="hover:bg-slate-800/50 transition-colors">
-                                                    <td className="p-3 font-bold text-center text-slate-400 font-sans">
-                                                        Año {row.yearIndex}
-                                                    </td>
-                                                    <td className="p-3 text-center font-sans font-bold text-cyan-300">
-                                                        <div>{row.calYear}</div>
-                                                        {row.age && <div className="text-[9px] text-slate-400 font-normal">{row.age} años</div>}
-                                                    </td>
-                                                    <td className="p-3 text-slate-300 font-bold">{formatMoney(row.startBalance)}</td>
-                                                    <td className="p-3 text-orange-400 font-bold">-{formatMoney(row.withdrawn)}</td>
-                                                    <td className="p-3 text-green-400">+{formatMoney(row.interestEarned)}</td>
-                                                    <td className={`p-3 font-bold border-l border-slate-700 text-base ${row.endBalance <= 0 ? 'text-red-400' : 'text-white'}`}>
-                                                        {formatMoney(row.endBalance)}
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
                                 </div>
                             )}
                         </div>
                     </main>
 
-                    {/* PIE DE PÁGINA CON AUTORÍA, ENLACE A BOLSA2 Y CONTACTO EN X */}
+                    {/* PIE DE PÁGINA */}
                     <footer className="bg-slate-900 border-t border-slate-800 py-6 px-6 text-center text-xs text-slate-500 space-y-3">
                         <div className="flex flex-wrap justify-center items-center gap-6 font-bold uppercase tracking-wider text-[11px]">
                             <a 
@@ -725,3 +1178,4 @@
     </script>
 </body>
 </html>
+--- END OF FILE index.html ---
